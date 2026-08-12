@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Facet Carver</title>
+    <meta
+      name="description"
+      content="Facet Carver calculates proportional tape marks for carving plain C guitar and bass necks from measured blanks."
+    >
+    <link rel="stylesheet" href="styles.css?v=1">
+  </head>
+  <body>
+    <header class="app-header" id="facet-carver">
+      <div class="page-width app-header__inner">
+        <div>
+          <p class="product-name">Facet Carver</p>
+          <h1>Lay out a plain C neck carve from your own blank.</h1>
+          <p class="app-header__summary">
+            Enter the real width and neck thickness at two frets. Facet Carver gives
+            you repeatable tape marks for three carving passes.
+          </p>
+        </div>
+        <div class="method-stamp" aria-label="Proportional carving method">
+          <strong>50 / 50 + 1 / 3</strong>
+          <span>proportional method</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="facet-app" data-facet-carver>
+      <span id="neck-tool" aria-hidden="true"></span>
+
+      <section class="workflow-section workflow-section--measure" aria-labelledby="measure-title">
+        <div class="page-width">
+          <div class="section-heading">
+            <span class="section-number" aria-hidden="true">1</span>
+            <div class="section-heading__copy">
+              <p class="section-kicker">Your blank</p>
+              <h2 id="measure-title">Measure two neck locations</h2>
+              <p>
+                Width means the full neck width. Thickness means neck wood only,
+                measured from the selected reference surface to the center of the back.
+              </p>
+            </div>
+
+            <fieldset class="unit-picker" aria-labelledby="unit-picker-label">
+              <legend id="unit-picker-label">Display units</legend>
+              <div class="segmented-control segmented-control--three">
+                <label>
+                  <input type="radio" name="displayUnit" value="decimal" checked>
+                  <span>Decimal in</span>
+                </label>
+                <label>
+                  <input type="radio" name="displayUnit" value="fraction">
+                  <span>Fraction</span>
+                </label>
+                <label>
+                  <input type="radio" name="displayUnit" value="mm">
+                  <span>mm</span>
+                </label>
+              </div>
+              <label class="fraction-precision" data-fraction-options hidden>
+                <span>Round to</span>
+                <select name="fractionPrecision">
+                  <option value="64">Auto / nearest 1/64&quot;</option>
+                  <option value="8">Nearest 1/8&quot;</option>
+                  <option value="16">Nearest 1/16&quot;</option>
+                  <option value="32">Nearest 1/32&quot;</option>
+                  <option value="64">Nearest 1/64&quot;</option>
+                  <option value="128">Nearest 1/128&quot;</option>
+                </select>
+              </label>
+            </fieldset>
+          </div>
+
+          <form class="measurement-form" aria-label="Neck measurements" novalidate>
+            <div class="setup-row">
+              <fieldset class="reference-picker" aria-labelledby="reference-picker-label">
+                <legend id="reference-picker-label">Reference surface</legend>
+                <div class="segmented-control segmented-control--two">
+                  <label>
+                    <input type="radio" name="referenceMode" value="glue" checked>
+                    <span>Separate fretboard</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="referenceMode" value="surface">
+                    <span>One-piece / flat top</span>
+                  </label>
+                </div>
+                <p data-reference-help>
+                  Measure neck wood from the fretboard glue line to the center of the back.
+                </p>
+              </fieldset>
+
+              <label class="field scale-field">
+                <span>Scale length</span>
+                <input
+                  type="text"
+                  inputmode="decimal"
+                  name="scaleLength"
+                  value="25.500"
+                  data-measurement="scale"
+                  autocomplete="off"
+                >
+                <small>Only used to estimate added fret locations.</small>
+              </label>
+            </div>
+
+            <div class="sample-notice" role="note">
+              <strong>Starter example loaded.</strong>
+              Replace these values with measurements from your own blank before carving.
+            </div>
+
+            <div class="location-grid" data-location-grid aria-label="Neck locations"></div>
+
+            <div class="form-actions">
+              <div class="history-actions" aria-label="Edit history">
+                <button class="text-button" type="button" data-action="undo" disabled>Undo</button>
+                <button class="text-button" type="button" data-action="redo" disabled>Redo</button>
+              </div>
+              <button class="button button--secondary" type="button" data-action="add-location">
+                Add fret location
+              </button>
+            </div>
+
+            <div class="validation-message" data-validation aria-live="polite"></div>
+          </form>
+        </div>
+      </section>
+
+      <section class="workflow-section workflow-section--carve" aria-labelledby="carve-title">
+        <div class="page-width">
+          <div class="section-heading section-heading--compact">
+            <span class="section-number" aria-hidden="true">2</span>
+            <div class="section-heading__copy">
+              <p class="section-kicker">At the bench</p>
+              <h2 id="carve-title">Carve one facet pass at a time</h2>
+              <p>
+                Each drawing shows the wood as it should look before that pass.
+                Hatched corners are the only wood removed in the selected step.
+              </p>
+            </div>
+            <div class="view-controls">
+              <label class="switch-row">
+                <input type="checkbox" name="showSmoothGuide" checked>
+                <span class="switch" aria-hidden="true"></span>
+                <span>Show smooth C guide</span>
+              </label>
+              <label class="switch-row">
+                <input type="checkbox" name="flipDrawing">
+                <span class="switch" aria-hidden="true"></span>
+                <span data-flip-label>Glue line down</span>
+              </label>
+            </div>
+          </div>
+
+          <nav class="pass-tabs" aria-label="Carving passes">
+            <button class="pass-tab is-active" type="button" data-pass="first" aria-current="step">
+              <span>1</span>
+              First facet
+            </button>
+            <button class="pass-tab" type="button" data-pass="second">
+              <span>2</span>
+              Second facet
+            </button>
+            <button class="pass-tab" type="button" data-pass="third">
+              <span>3</span>
+              Third facet
+            </button>
+          </nav>
+
+          <div class="pass-summary" data-pass-summary></div>
+
+          <div class="diagram-legend" aria-label="Diagram key">
+            <span>
+              <i class="legend-swatch legend-swatch--cut" aria-hidden="true"></i>
+              Remove this pass
+            </span>
+            <span>
+              <i class="legend-swatch legend-swatch--mark-a" aria-hidden="true"></i>
+              Mark A
+            </span>
+            <span>
+              <i class="legend-swatch legend-swatch--mark-b" aria-hidden="true"></i>
+              Mark B
+            </span>
+            <span>
+              <i class="legend-swatch legend-swatch--smooth" aria-hidden="true"></i>
+              Smooth C guide
+            </span>
+          </div>
+
+          <div class="diagram-grid" data-diagram-grid aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="workflow-section workflow-section--plan" aria-labelledby="plan-title">
+        <div class="page-width">
+          <div class="section-heading section-heading--compact">
+            <span class="section-number" aria-hidden="true">3</span>
+            <div class="section-heading__copy">
+              <p class="section-kicker">Connect the marks</p>
+              <h2 id="plan-title">Carry each mark down the neck</h2>
+              <p>
+                Put the same mark on both sides, connect matching fret locations with
+                a fair line, tape the keep side, and carve to the line.
+              </p>
+            </div>
+            <button class="button button--primary" type="button" data-action="print">
+              Print full-size shop sheet
+            </button>
+          </div>
+
+          <div class="mark-plan" data-mark-plan aria-live="polite"></div>
+
+          <details class="method-details">
+            <summary>Why these numbers?</summary>
+            <div class="method-details__body">
+              <p>
+                The first pass halves the half-width and the neck thickness. The second
+                pass halves the remaining side and uses one-third of the original first
+                facet. The third pass halves the remaining back and uses the midpoint of
+                that original first facet.
+              </p>
+              <p>
+                This is a repeatable rough-carving layout for a symmetric plain C. It is
+                not an industry-standard definition of every "C" profile, and the smooth
+                green curve is only an elliptical fairing guide.
+              </p>
+              <p>
+                The side measurements require a flat reference line: either a separate
+                fretboard glue line or the still-flat top of a one-piece neck before it
+                is radiused.
+              </p>
+              <a
+                href="https://www.tornelliguitars.com/post/how-to-shape-a-guitar-neck"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Carving reference: Tornelli Guitars, "How to shape a guitar neck"
+              </a>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="workflow-section workflow-section--verify" aria-labelledby="verify-title">
+        <div class="page-width verification-layout">
+          <div>
+            <p class="section-kicker">Physical verification</p>
+            <h2 id="verify-title">Check the shape before final sanding</h2>
+            <p>
+              Facet Carver lays out roughing cuts. Calipers and a physical profile
+              template are the final authority before you remove the last material.
+            </p>
+          </div>
+          <div class="verification-links">
+            <a
+              href="https://www.stewmac.com/luthier-tools-and-supplies/tools-by-job/tools-for-necks-and-fingerboards/neck-shaping-templates-for-electric-guitar/"
+              target="_blank"
+              rel="noreferrer"
+              data-reference-link="stewmac-electric"
+            >
+              Electric neck shaping templates
+            </a>
+            <a
+              href="https://www.stewmac.com/luthier-tools-and-supplies/tools-by-job/tools-for-necks-and-fingerboards/neck-shaping-templates-for-acoustic-guitar/"
+              target="_blank"
+              rel="noreferrer"
+              data-reference-link="stewmac-acoustic"
+            >
+              Acoustic neck shaping templates
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <aside class="safety-band" aria-label="Safety disclaimer">
+        <div class="page-width safety-band__inner">
+          <strong>Double-check before cutting.</strong>
+          <p>
+            Facet Carver is a layout aid, not a guarantee. Verify every measurement
+            against your blank and intended profile. Check the truss rod channel depth,
+            rod hardware, center thickness, and the thinnest finished area before
+            carving. Leave enough back-wall material that you cannot sand or rasp into
+            the truss rod channel. You are responsible for deciding whether the result is
+            safe and appropriate for your instrument.
+          </p>
+        </div>
+      </aside>
+    </main>
+
+    <div class="print-sheet" id="print-sheet" aria-hidden="true"></div>
+
+    <script type="module" src="src/main.mjs?v=1"></script>
+  </body>
+</html>

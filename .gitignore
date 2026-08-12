@@ -1,0 +1,25 @@
+# Dependencies and test output
+node_modules/
+coverage/
+.nyc_output/
+
+# Generated builds
+dist/
+build/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
