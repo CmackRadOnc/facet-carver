@@ -1,5 +1,5 @@
-import { initFacetCarver } from "./facetCarver.mjs?v=1";
+import { initFacetCarver } from "./facetCarver.mjs?v=2";
 
-document.title = "Facet Carver";
+document.title = "Facet Carver — Neck carving workbench";
 
 initFacetCarver();

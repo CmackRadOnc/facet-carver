@@ -31,5 +31,8 @@ jobs:
       - name: Check JavaScript syntax
         run: npm run check
 
+      - name: Install development test dependencies
+        run: npm ci
+
       - name: Run deterministic tests
         run: npm test

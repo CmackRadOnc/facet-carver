@@ -12,6 +12,7 @@ import {
   physicalTemplateSize,
   stationDistance
 } from "./facetMath.mjs";
+import { buildLongitudinalPlan, parseSetup, serializeSetup, validateSetup } from "./workbench.mjs";
 
 const METHOD_REFERENCE_URL =
   "https://www.tornelliguitars.com/post/how-to-shape-a-guitar-neck";
@@ -24,6 +25,7 @@ const INITIAL_STATE = {
   activePass: "first",
   showSmoothGuide: true,
   flipDrawing: false,
+  drawingStage: "before",
   stations: [
     {
       id: "low",
@@ -70,6 +72,13 @@ export function initFacetCarver() {
     passButtons: [...root.querySelectorAll("[data-pass]")],
     passSummary: root.querySelector("[data-pass-summary]"),
     diagramGrid: root.querySelector("[data-diagram-grid]"),
+    stationTabs: root.querySelector("[data-station-tabs]"),
+    lengthPlan: root.querySelector("[data-length-plan]"),
+    workspaceStatus: root.querySelector("[data-workspace-status]"),
+    save: root.querySelector("[data-action='save']"),
+    open: root.querySelector("[data-action='open']"),
+    projectFile: root.querySelector("[data-project-file]"),
+    projectMessage: root.querySelector("[data-project-message]"),
     showSmoothGuide: root.querySelector("input[name='showSmoothGuide']"),
     flipDrawing: root.querySelector("input[name='flipDrawing']"),
     flipLabel: root.querySelector("[data-flip-label]"),
@@ -79,6 +88,7 @@ export function initFacetCarver() {
   };
 
   let state = cloneState(INITIAL_STATE);
+  let selectedStationId = "low";
   let nextStationNumber = 3;
   let history = [cloneState(state)];
   let historyIndex = 0;
@@ -89,6 +99,55 @@ export function initFacetCarver() {
   syncStaticControls();
   renderLocationCards();
   renderAll();
+
+  controls.form.addEventListener("submit", (event) => event.preventDefault());
+  controls.save.addEventListener("click", () => {
+    if (validateState().errors.length) return;
+    const url = URL.createObjectURL(new Blob([serializeSetup(state)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "facet-carver-setup.json";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    projectMessage("Setup saved as a file. Open it here to continue later.");
+  });
+  controls.open.addEventListener("click", () => controls.projectFile.click());
+  controls.projectFile.addEventListener("change", async () => {
+    const file = controls.projectFile.files?.[0];
+    if (!file) return;
+    try {
+      if (file.size > 100000) throw new Error("Choose a Facet Carver setup smaller than 100 KB.");
+      const next = parseSetup(await file.text());
+      flushHistoryCommit();
+      restoreHistory(next);
+      commitHistory();
+      projectMessage("Setup opened. Previous measurements are available with Undo.");
+    } catch (error) {
+      projectMessage(`Could not open setup: ${error.message}`, true);
+    } finally { controls.projectFile.value = ""; }
+  });
+
+  function projectMessage(message, isError = false) {
+    controls.projectMessage.textContent = message;
+    controls.projectMessage.hidden = false;
+    controls.projectMessage.classList.toggle("is-error", isError);
+  }
+  controls.stationTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-view-station]");
+    if (!button) return;
+    selectedStationId = button.dataset.viewStation;
+    renderDiagrams(validateState());
+    controls.stationTabs.querySelector(`[data-view-station="${selectedStationId}"]`)?.focus();
+  });
+  for (const input of root.querySelectorAll("[name='drawingStage']")) {
+    input.addEventListener("change", () => {
+      state.drawingStage = input.value;
+      renderAll();
+      commitHistory();
+    });
+  }
 
   for (const input of controls.unitInputs) {
     input.addEventListener("change", () => {
@@ -143,13 +202,7 @@ export function initFacetCarver() {
 
   controls.scaleLength.addEventListener("change", () => {
     const parsed = parseMeasurement(controls.scaleLength.value, state.displayUnit);
-    if (!(parsed > 0)) {
-      syncScaleInput();
-      setInputValidity(controls.scaleLength, true);
-      invalidDraftErrors.delete("scaleLength");
-      renderAll();
-      return;
-    }
+    if (measurementInputError("scaleLength", parsed)) return;
     commitHistory();
   });
 
@@ -167,11 +220,7 @@ export function initFacetCarver() {
     if (input.dataset.stationField === "behindNut") {
       renderLocationCards();
       renderAll();
-    } else if (input.getAttribute("aria-invalid") === "true") {
-      invalidDraftErrors.delete(draftKey(input));
-      renderLocationCards();
-      renderAll();
-    }
+    } else if (input.getAttribute("aria-invalid") === "true") return;
     commitHistory();
   });
 
@@ -220,6 +269,7 @@ export function initFacetCarver() {
     };
     nextStationNumber += 1;
     state.stations.push(station);
+    selectedStationId = station.id;
     updateAutomaticStations();
     renderLocationCards();
     renderAll();
@@ -254,6 +304,10 @@ export function initFacetCarver() {
 
   controls.undo.addEventListener("click", () => {
     flushHistoryCommit();
+    if (invalidDraftErrors.size) {
+      restoreHistory(history[historyIndex]);
+      return;
+    }
     if (historyIndex <= 0) return;
     historyIndex -= 1;
     restoreHistory(history[historyIndex]);
@@ -294,7 +348,7 @@ export function initFacetCarver() {
     }
 
     if (field === "fret") {
-      const value = Number(input.value);
+      const value = input.value.trim() ? Number(input.value) : Number.NaN;
       const error = measurementInputError("fret", value, stationShortName(station));
       setInputValidity(input, !error);
       if (error) {
@@ -348,11 +402,22 @@ export function initFacetCarver() {
     renderPassSummary();
     renderDiagrams(audit);
     renderMarkPlan(audit);
+    renderLengthPlan(audit);
     renderPrintSheet();
+    controls.save.disabled = audit.errors.length > 0;
+    const hasDraft = invalidDraftErrors.size > 0;
+    for (const input of [...controls.unitInputs, ...controls.referenceInputs, controls.fractionPrecision]) input.disabled = hasDraft;
+    controls.addLocation.disabled ||= hasDraft;
+    for (const input of controls.locationGrid.querySelectorAll("[data-location-action], [data-station-field='behindNut']")) input.disabled = hasDraft;
+    controls.workspaceStatus.textContent = audit.errors.length ? "Check measurements" : `${state.stations.length} locations · Pass ${PASS_KEYS.indexOf(state.activePass) + 1}`;
+    controls.workspaceStatus.classList.toggle("is-invalid", audit.errors.length > 0);
+    const unchanged = JSON.stringify(state.stations) === JSON.stringify(INITIAL_STATE.stations) && state.scaleLength === INITIAL_STATE.scaleLength;
+    root.querySelector("[data-sample-notice]").hidden = !unchanged;
     updateHistoryButtons();
   }
 
   function syncStaticControls() {
+    for (const input of root.querySelectorAll("[name='drawingStage']")) input.checked = input.value === state.drawingStage;
     for (const input of controls.unitInputs) {
       input.checked = input.value === state.displayUnit;
     }
@@ -377,6 +442,9 @@ export function initFacetCarver() {
   function syncScaleInput() {
     controls.scaleLength.value = formatInput(state.scaleLength);
     controls.scaleLength.dataset.inches = String(state.scaleLength);
+    root.querySelector("[data-scale-unit]").textContent = state.displayUnit === "mm" ? "mm" : "in";
+    controls.scaleLength.inputMode = state.displayUnit === "fraction" ? "text" : "decimal";
+    setInputValidity(controls.scaleLength, true);
   }
 
   function renderLocationCards() {
@@ -451,7 +519,7 @@ export function initFacetCarver() {
             >
           </label>
           <label class="field">
-            <span>${escapeHtml(thicknessFieldLabel())} <small>(${unit})</small></span>
+            <span>Wood thickness <small>(${unit})</small></span>
             <input
               type="text"
               inputmode="${state.displayUnit === "fraction" ? "text" : "decimal"}"
@@ -499,8 +567,8 @@ export function initFacetCarver() {
         }
 
         ${
-          isMiddle && (station.manualWidth || station.manualThickness)
-            ? `<button class="reset-estimate" type="button" data-location-action="reset" data-station-id="${station.id}">Reset to interpolated estimate</button>`
+          isMiddle
+            ? `<button class="reset-estimate" type="button" data-location-action="reset" data-station-id="${station.id}" ${station.manualWidth || station.manualThickness ? "" : "hidden"}>Reset to interpolated estimate</button>`
             : ""
         }
       </fieldset>
@@ -538,7 +606,9 @@ export function initFacetCarver() {
     }
 
     const middleStations = orderedStations().filter((station) => station.role === "middle");
-    controls.diagramGrid.innerHTML = orderedStations()
+    if (!state.stations.some((item) => item.id === selectedStationId)) selectedStationId = stationByRole("low").id;
+    controls.stationTabs.innerHTML = orderedStations().map((station) => `<button class="station-tab" type="button" data-view-station="${station.id}" aria-pressed="${station.id === selectedStationId}">${escapeHtml(positionLabel(station))}</button>`).join("");
+    controls.diagramGrid.innerHTML = orderedStations().filter((station) => station.id === selectedStationId)
       .map((station) => {
         const geometry = calculateFacetGeometry(station.width, station.thickness);
         const pass = geometry.passes[state.activePass];
@@ -561,15 +631,15 @@ export function initFacetCarver() {
           <span class="angle-readout">${pass.angleFromBack.toFixed(1)}&deg; from back</span>
         </header>
 
+        ${crossSectionSvg(station, label, geometry, pass)}
+
         <dl class="diagram-values">
           ${diagramValueMarkup(first, "a")}
           ${diagramValueMarkup(second, "b")}
         </dl>
 
-        ${crossSectionSvg(station, label, geometry, pass)}
-
         <p class="diagram-card__note">
-          Use the same marks on both sides. Screen drawing is proportional; the print sheet is full size.
+          ${state.drawingStage === "after" ? "Finished envelope for this pass; A/B retain the original layout references." : "Cut the hatched areas to the white lines. Use the same marks on both sides."} Print for full size.
         </p>
 
         <details class="coordinate-details">
@@ -598,7 +668,7 @@ export function initFacetCarver() {
           <span class="mark-symbol mark-symbol--${key}" aria-hidden="true">${key.toUpperCase()}</span>
           ${escapeHtml(measurement.label)}
         </dt>
-        <dd>${escapeHtml(formatMain(measurement.value))}</dd>
+        <dd>${escapeHtml(formatMain(measurement.value))}<small>${escapeHtml(secondaryMeasurements(measurement.value).join(" · "))}</small></dd>
       </div>
     `;
   }
@@ -634,6 +704,7 @@ export function initFacetCarver() {
     const hatchId = `waste-${safeId(station.id)}-${pass.key}`;
     const smoothPath = smoothCurvePath(geometry, sx, sy);
     const stagePath = polygonPath(pass.stageBefore, sx, sy);
+    const afterPath = polygonPath(pass.stageAfter, sx, sy);
     const wasteRight = polygonPath(pass.waste, sx, sy);
     const wasteLeft = polygonPath(pass.waste.map(mirror), sx, sy);
     const activeRight = linePath(pass.line, sx, sy);
@@ -653,7 +724,7 @@ export function initFacetCarver() {
     return `
       <svg
         class="cross-section"
-        viewBox="0 0 ${svgWidth} ${svgHeight}"
+        viewBox="0 36 ${svgWidth} 365"
         role="img"
         aria-label="${escapeHtml(ariaDescription)}"
       >
@@ -664,11 +735,12 @@ export function initFacetCarver() {
         </defs>
 
         <rect class="diagram-background" x="1" y="1" width="${svgWidth - 2}" height="${svgHeight - 2}" rx="6"></rect>
-        <path class="blank-stage" d="${stagePath} Z"></path>
-        <path class="waste-fill" d="${wasteRight} Z"></path>
+        <path class="blank-ghost" d="${polygonPath(geometry.passes.first.stageBefore, sx, sy)} Z"></path>
+        <path class="blank-stage" d="${state.drawingStage === "after" ? afterPath : stagePath} Z"></path>
+        ${state.drawingStage !== "after" ? `<path class="waste-fill" d="${wasteRight} Z"></path>
         <path class="waste-fill" d="${wasteLeft} Z"></path>
         <path class="waste-hatch" fill="url(#${hatchId})" d="${wasteRight} Z"></path>
-        <path class="waste-hatch" fill="url(#${hatchId})" d="${wasteLeft} Z"></path>
+        <path class="waste-hatch" fill="url(#${hatchId})" d="${wasteLeft} Z"></path>` : ""}
 
         <line
           class="reference-line"
@@ -708,12 +780,35 @@ export function initFacetCarver() {
         <line class="dimension-line" x1="${depthDimensionX.toFixed(2)}" y1="${sy(0).toFixed(2)}" x2="${depthDimensionX.toFixed(2)}" y2="${sy(geometry.thickness).toFixed(2)}"></line>
         <line class="dimension-tick" x1="${(depthDimensionX - 7).toFixed(2)}" y1="${sy(0).toFixed(2)}" x2="${(depthDimensionX + 7).toFixed(2)}" y2="${sy(0).toFixed(2)}"></line>
         <line class="dimension-tick" x1="${(depthDimensionX - 7).toFixed(2)}" y1="${sy(geometry.thickness).toFixed(2)}" x2="${(depthDimensionX + 7).toFixed(2)}" y2="${sy(geometry.thickness).toFixed(2)}"></line>
-        <text class="dimension-label dimension-label--depth" text-anchor="end" x="${(depthDimensionX - 12).toFixed(2)}" y="${((sy(0) + sy(geometry.thickness)) / 2 + 4).toFixed(2)}">T ${escapeHtml(formatMain(geometry.thickness))}</text>
+        <text class="dimension-label" transform="rotate(-90 ${(depthDimensionX - 12).toFixed(2)} ${((sy(0) + sy(geometry.thickness)) / 2).toFixed(2)})" x="${(depthDimensionX - 12).toFixed(2)}" y="${((sy(0) + sy(geometry.thickness)) / 2).toFixed(2)}">T ${escapeHtml(formatMain(geometry.thickness))}</text>
 
         <text class="reference-label" x="${centerX}" y="${referenceTextY.toFixed(2)}">${escapeHtml(referenceLongLabel().toUpperCase())}</text>
         <text class="center-label" x="${centerX}" y="${centerTextY.toFixed(2)}">BACK CENTERLINE</text>
       </svg>
     `;
+  }
+
+  function renderLengthPlan(audit) {
+    if (audit.errors.length) {
+      controls.lengthPlan.innerHTML = '<p class="length-note">Correct the measurements to show the lengthwise layout.</p>';
+      return;
+    }
+    const rows = buildLongitudinalPlan(state.stations, state.scaleLength, state.activePass);
+    const first = rows[0].distance;
+    const span = rows.at(-1).distance - first;
+    const x = row => 62 + (row.distance - first) / span * 690;
+    const widest = Math.max(...rows.map(row => row.halfWidth));
+    const y = width => 126 + width / widest * 57;
+    const points = (field, sign = 1) => rows.map(row => `${x(row).toFixed(2)},${y(row[field] * sign).toFixed(2)}`).join(" ");
+    const outline = `${points("halfWidth", -1)} ${[...rows].reverse().map(row => `${x(row).toFixed(2)},${y(row.halfWidth).toFixed(2)}`).join(" ")}`;
+    controls.lengthPlan.innerHTML = `
+      <svg class="length-map" viewBox="0 0 820 248" role="img" aria-label="Back projection of neck locations at physical fret spacing, with projected A and B mark lines. Width is enlarged.">
+        <polygon class="neck-envelope" points="${outline}" />
+        <line class="station-line" x1="62" x2="752" y1="126" y2="126" />
+        ${[1,-1].map(sign => `<polyline class="plan-line" points="${points("markA", sign)}"/><polyline class="plan-line plan-line--b" points="${points("markB", sign)}"/>`).join("")}
+        ${rows.map(row => `<line class="station-line" x1="${x(row)}" x2="${x(row)}" y1="53" y2="191"/><circle class="plan-dot" cx="${x(row)}" cy="${y(-row.markA)}" r="4"/><text x="${x(row)}" y="35" text-anchor="middle">${row.behindNut ? "Behind nut" : row.fret === 0 ? "Nut" : `Fret ${row.fret}`}</text><text x="${x(row)}" y="216" text-anchor="middle">${escapeHtml(formatMain(row.distance))}</text>`).join("")}
+      </svg>
+      <p class="length-note">Positions are measured from the nut; width is enlarged for clarity. Blue is A, amber is B. Transfer the face measurements below to both sides, then connect matching marks with a fair line.</p>`;
   }
 
   function renderMarkPlan(audit) {
@@ -742,7 +837,7 @@ export function initFacetCarver() {
             <tr>
               <th>Location</th>
               <th>Full width</th>
-              <th>${escapeHtml(thicknessFieldLabel())}</th>
+              <th>Wood thickness</th>
               <th>Mark A</th>
               <th>Mark B</th>
               <th>Guide angle</th>
@@ -789,6 +884,7 @@ export function initFacetCarver() {
         <div>
           <p>Facet Carver</p>
           <h1>Plain C neck carving shop sheet</h1>
+          <p>Scale length: ${escapeHtml(formatMain(state.scaleLength))}. All dimensions refer to neck wood only.</p>
           <p>
             Reference: ${escapeHtml(referenceLongLabel())}. Print at 100% / actual size.
             Turn off "fit to page."
@@ -879,12 +975,12 @@ export function initFacetCarver() {
         <thead>
           <tr>
             <th>Location</th>
-            <th>Pass 1 A</th>
-            <th>Pass 1 B</th>
-            <th>Pass 2 A</th>
-            <th>Pass 2 B</th>
-            <th>Pass 3 A</th>
-            <th>Pass 3 B</th>
+            <th>1 A<small>Back, from center</small></th>
+            <th>1 B<small>Side, from reference</small></th>
+            <th>2 A<small>Side, from reference</small></th>
+            <th>2 B<small>First facet, from side</small></th>
+            <th>3 A<small>Back, from center</small></th>
+            <th>3 B<small>First facet, from back</small></th>
           </tr>
         </thead>
         <tbody>
@@ -915,7 +1011,7 @@ export function initFacetCarver() {
   }
 
   function validateState() {
-    const errors = [...invalidDraftErrors.values()];
+    const errors = [...invalidDraftErrors.values(), ...validateSetup(state)];
     const warnings = [];
     const ordered = orderedStations();
     const low = stationByRole("low");
@@ -1007,17 +1103,19 @@ export function initFacetCarver() {
       if (!card) continue;
       if (!station.manualWidth) {
         const input = card.querySelector('[data-station-field="width"]');
-        if (input) input.value = formatInput(station.width);
+        if (input && !invalidDraftErrors.has(draftKey(input))) input.value = formatInput(station.width);
       }
       if (!station.manualThickness) {
         const input = card.querySelector('[data-station-field="thickness"]');
-        if (input) input.value = formatInput(station.thickness);
+        if (input && !invalidDraftErrors.has(draftKey(input))) input.value = formatInput(station.thickness);
       }
       updateMiddleStatus(station);
     }
   }
 
   function updateMiddleStatus(station) {
+    const reset = controls.locationGrid.querySelector(`[data-location-action="reset"][data-station-id="${station.id}"]`);
+    if (reset) reset.hidden = !station.manualWidth && !station.manualThickness;
     const status = controls.locationGrid.querySelector(
       `[data-station-status="${station.id}"]`
     );
@@ -1193,6 +1291,7 @@ export function initFacetCarver() {
     restoringHistory = true;
     invalidDraftErrors.clear();
     state = cloneState(snapshot);
+    updateAutomaticStations();
     nextStationNumber = Math.max(
       3,
       ...state.stations.map((station) => {
@@ -1219,7 +1318,7 @@ export function initFacetCarver() {
   }
 
   function updateHistoryButtons() {
-    controls.undo.disabled = historyIndex <= 0;
+    controls.undo.disabled = historyIndex <= 0 && !invalidDraftErrors.size;
     controls.redo.disabled = historyIndex >= history.length - 1;
   }
 
