@@ -3,7 +3,7 @@ export const MAX_LOCATIONS = 6;
 export const PASS_KEYS = ["first", "second", "third"];
 
 export function measurementInputError(field, value, label = "Measurement") {
-  const number = Number(value);
+  const number = typeof value === "number" ? value : Number.NaN;
 
   if (field === "scaleLength") {
     return Number.isFinite(number) && number > 0
@@ -11,7 +11,7 @@ export function measurementInputError(field, value, label = "Measurement") {
       : "Scale length must be greater than zero.";
   }
   if (field === "fret") {
-    return Number.isFinite(number) && number >= 0 && number <= 36
+    return Number.isInteger(number) && number >= 0 && number <= 36
       ? null
       : `${label} needs a fret location from 0 through 36.`;
   }
@@ -262,50 +262,24 @@ export function formatFraction(value, denominator = 64) {
 }
 
 export function parseMeasurement(value, unit = "decimal") {
-  const raw = String(value ?? "")
-    .trim()
-    .replace(/[\u2033"]/g, "")
-    .replace(/\b(inches|inch|in|millimeters|millimeter|mm)\b/gi, "")
-    .trim();
-
-  if (!raw) return Number.NaN;
-
-  if (unit === "mm") {
-    const millimeters = Number(raw.replace(/,/g, ""));
-    return Number.isFinite(millimeters)
-      ? millimeters / INCH_TO_MM
-      : Number.NaN;
+  let raw = String(value ?? "").trim();
+  const suffix = raw.match(/\s*(millimeters|millimeter|mm|inches|inch|in|["\u2033])$/i);
+  if (suffix) {
+    unit = /^m/i.test(suffix[1]) ? "mm" : "decimal";
+    raw = raw.slice(0, suffix.index).trim();
   }
-
-  const sign = raw.startsWith("-") ? -1 : 1;
-  const unsigned = raw
-    .replace(/^-/, "")
-    .replace(/-/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!unsigned) return Number.NaN;
-
-  let total = 0;
-  for (const part of unsigned.split(" ")) {
-    if (part.includes("/")) {
-      const [numerator, denominator] = part.split("/").map(Number);
-      if (
-        !Number.isFinite(numerator) ||
-        !Number.isFinite(denominator) ||
-        denominator === 0
-      ) {
-        return Number.NaN;
-      }
-      total += numerator / denominator;
-      continue;
-    }
-
-    const number = Number(part.replace(/,/g, ""));
-    if (!Number.isFinite(number)) return Number.NaN;
-    total += number;
+  // One complete number only. Never silently sum tokens or discard extra slashes.
+  const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+  const fraction = /^([+-]?)(?:(\d+)(?:\s+|-))?(\d+)\s*\/\s*(\d+)$/;
+  let number;
+  if (decimal.test(raw)) number = Number(raw);
+  else {
+    const parts = raw.match(fraction);
+    if (!parts || Number(parts[4]) === 0) return Number.NaN;
+    number = (Number(parts[2] || 0) + Number(parts[3]) / Number(parts[4])) * (parts[1] === "-" ? -1 : 1);
   }
-
-  return sign * total;
+  if (!Number.isFinite(number)) return Number.NaN;
+  return unit === "mm" ? number / INCH_TO_MM : number;
 }
 
 export function point(x, y) {
